@@ -1,3 +1,5 @@
+import type { KnownChat } from '../bot/lark-info';
+import type { LarkCliIdentityPreset } from '../config/profile-schema';
 import type { MessageReplyMode } from '../config/schema';
 
 export interface ConfigFormOpts {
@@ -7,16 +9,83 @@ export interface ConfigFormOpts {
   /** 0 means "disabled". */
   runIdleTimeoutMinutes: number;
   requireMentionInGroup: boolean;
-  /** Comma-separated open_id allowlist; empty string = unrestricted. */
-  allowedUsers: string;
-  /** Comma-separated chat_id allowlist; empty string = unrestricted. */
-  allowedChats: string;
-  /** Comma-separated admin open_id list; empty string = no admin gating. */
-  admins: string;
+  larkCliIdentity: LarkCliIdentityPreset;
+  allowedUsers: string[];
+  allowedChats: string[];
+  admins: string[];
+  knownChats: KnownChat[];
+}
+
+function collapsedAccessPanel(title: string, elements: object[]): object {
+  return {
+    tag: 'collapsible_panel',
+    expanded: false,
+    header: {
+      title: { tag: 'markdown', content: title },
+      vertical_align: 'center',
+      icon: {
+        tag: 'standard_icon',
+        token: 'down-small-ccm_outlined',
+        size: '16px 16px',
+      },
+      icon_position: 'follow_text',
+      icon_expanded_angle: -180,
+    },
+    border: { color: 'blue', corner_radius: '5px' },
+    vertical_spacing: '8px',
+    padding: '8px 8px 8px 8px',
+    elements,
+  };
+}
+
+function atMentionLine(openIds: string[]): string {
+  if (openIds.length === 0) return '_（暂无）_';
+  return openIds.map((id) => `<at id="${id}"></at>`).join('  ');
+}
+
+function chatList(chatIds: string[], knownChats: KnownChat[]): string {
+  if (chatIds.length === 0) return '_（暂无）_';
+  const nameMap = new Map(knownChats.map((chat) => [chat.id, chat.name]));
+  return chatIds
+    .map((id) => `- **${nameMap.get(id) ?? '(未知群)'}**（...${id.slice(-6)}）`)
+    .join('\n');
 }
 
 /** Form card for `/config`. */
 export function configFormCard(opts: ConfigFormOpts): object {
+  const accessElements: object[] = [
+    {
+      tag: 'markdown',
+      content: '_控制谁能通过私聊和群聊使用 bot。**留空 = 不响应聊天消息**。云文档评论按文档权限生效。_',
+    },
+    { tag: 'hr' },
+    {
+      tag: 'markdown',
+      content:
+        `**允许私聊的用户**（共 ${opts.allowedUsers.length} 人）\n` +
+        `${atMentionLine(opts.allowedUsers)}\n\n` +
+        '_加 / 删：_ `/invite user @某人`  `/remove user @某人`',
+    },
+    { tag: 'hr' },
+    {
+      tag: 'markdown',
+      content:
+        `**允许响应的群**（共 ${opts.allowedChats.length} 个）\n` +
+        `${chatList(opts.allowedChats, opts.knownChats)}\n\n` +
+        '_一键加全部 bot 所在的群：_ `/invite all group`\n' +
+        '_加 / 删（在目标群里发）：_ `/invite group`  `/remove group`',
+    },
+    { tag: 'hr' },
+    {
+      tag: 'markdown',
+      content:
+        `**管理员**（共 ${opts.admins.length} 人）\n` +
+        `${atMentionLine(opts.admins)}\n\n` +
+        '_可以跑敏感命令：`/account` `/config` `/exit` `/reconnect` `/doctor` `/cd` `/ws` `/invite` `/remove`。管理员也自动获得私聊权限，并可在未白名单群里管理访问控制。_\n\n' +
+        '_加 / 删：_ `/invite admin @某人`  `/remove admin @某人`',
+    },
+  ];
+
   return {
     schema: '2.0',
     config: { summary: { content: '偏好设置' } },
@@ -26,7 +95,7 @@ export function configFormCard(opts: ConfigFormOpts): object {
           tag: 'markdown',
           content:
             '⚙️ **偏好设置**\n\n' +
-            '调整 bot 的行为偏好。改完点提交,**立即生效**(无需重启)并写入 `~/.lark-channel/config.json`。',
+            '调整 bot 的行为偏好。改完点提交后写入当前 profile 配置；消息和访问控制设置立即生效。',
         },
         { tag: 'hr' },
         {
@@ -114,55 +183,24 @@ export function configFormCard(opts: ConfigFormOpts): object {
                 { text: { tag: 'plain_text', content: '否' }, value: 'no' },
               ],
             },
+            {
+              tag: 'markdown',
+              content:
+                '\n**lark-cli 身份策略**\n' +
+                '_只允许应用身份:使用 bot/app 能力,不访问个人资源_\n' +
+                '_允许用户身份:保留应用身份,并允许已授权用户访问个人日历、邮箱、云盘等资源_',
+            },
+            {
+              tag: 'select_static',
+              name: 'lark_cli_identity',
+              initial_option: opts.larkCliIdentity,
+              options: [
+                { text: { tag: 'plain_text', content: '只允许应用身份' }, value: 'bot-only' },
+                { text: { tag: 'plain_text', content: '允许用户身份' }, value: 'user-default' },
+              ],
+            },
             { tag: 'hr' },
-            {
-              tag: 'markdown',
-              content:
-                '🔒 **访问控制**\n\n' +
-                '_控制谁能跟 bot 交互、谁能跑敏感命令。留空 = 不限制（默认）_',
-            },
-            {
-              tag: 'markdown',
-              content:
-                '\n**用户白名单**(`allowedUsers`)\n' +
-                '_只允许列表内的 open_id 跟 bot 交互。多个用英文逗号分隔。留空 = 不限制_\n' +
-                '_open_id 可从日志 `~/.lark-channel/logs/*.log` 里 grep `senderId` 字段_',
-            },
-            {
-              tag: 'input',
-              name: 'allowed_users',
-              default_value: opts.allowedUsers,
-              placeholder: { tag: 'plain_text', content: 'ou_xxx, ou_yyy（留空=不限制）' },
-              input_type: 'text',
-            },
-            {
-              tag: 'markdown',
-              content:
-                '\n**群白名单**(`allowedChats`)\n' +
-                '_只限制群（含话题群）——bot 只在名单内的群响应。多个用英文逗号分隔。留空 = 所有群都响应_\n' +
-                '_⚠️ 私聊不受此约束,DM 的访问权由"用户白名单"决定_',
-            },
-            {
-              tag: 'input',
-              name: 'allowed_chats',
-              default_value: opts.allowedChats,
-              placeholder: { tag: 'plain_text', content: 'oc_xxx, oc_yyy（留空=所有群）' },
-              input_type: 'text',
-            },
-            {
-              tag: 'markdown',
-              content:
-                '\n**管理员**(`admins`)\n' +
-                '_只允许这些 open_id 跑敏感命令: `/account` `/config` `/exit` `/reconnect` `/doctor` `/cd` `/ws`_\n' +
-                '_留空 = 不做管理员限制(所有放行的用户都能跑)。⚠️ 改为非空时务必把自己包含在内,否则会自锁出 /config_',
-            },
-            {
-              tag: 'input',
-              name: 'admins',
-              default_value: opts.admins,
-              placeholder: { tag: 'plain_text', content: 'ou_xxx, ou_yyy（留空=不限制）' },
-              input_type: 'text',
-            },
+            collapsedAccessPanel('🔒 **访问控制**（点击展开）', accessElements),
             {
               tag: 'column_set',
               flex_mode: 'flow',
@@ -210,10 +248,8 @@ export function configSavedCard(opts: ConfigFormOpts): object {
       : opts.messageReply === 'markdown'
         ? '消息卡片'
         : '纯文本';
-  const summarizeList = (raw: string): string => {
-    const items = raw.split(',').map((s) => s.trim()).filter(Boolean);
-    return items.length === 0 ? '_(不限制)_' : `${items.length} 项`;
-  };
+  const summarize = (list: string[]): string =>
+    list.length === 0 ? '_(空)_' : `${list.length} 项`;
   return {
     schema: '2.0',
     config: { summary: { content: '偏好已保存' } },
@@ -228,10 +264,11 @@ export function configSavedCard(opts: ConfigFormOpts): object {
             `**并发上限**:\`${opts.maxConcurrentRuns}\`\n` +
             `**run 探活**:\`${opts.runIdleTimeoutMinutes > 0 ? `${opts.runIdleTimeoutMinutes} 分钟` : '关闭'}\`\n` +
             `**群里需要 @ bot**:\`${opts.requireMentionInGroup ? '是' : '否'}\`\n\n` +
+            `**lark-cli 身份策略**:\`${opts.larkCliIdentity === 'user-default' ? '允许用户身份' : '只允许应用身份'}\`\n\n` +
             '🔒 **访问控制**\n' +
-            `**用户白名单**:${summarizeList(opts.allowedUsers)}\n` +
-            `**群白名单**:${summarizeList(opts.allowedChats)}\n` +
-            `**管理员**:${summarizeList(opts.admins)}\n\n` +
+            `**允许私聊的用户**:${summarize(opts.allowedUsers)}\n` +
+            `**允许响应的群**:${summarize(opts.allowedChats)}\n` +
+            `**管理员**:${summarize(opts.admins)}\n\n` +
             '下条消息开始生效。',
         },
       ],
@@ -245,6 +282,16 @@ export function configCancelledCard(): object {
     config: { summary: { content: '已取消' } },
     body: {
       elements: [{ tag: 'markdown', content: '已取消,未做任何修改。' }],
+    },
+  };
+}
+
+export function configFailedCard(reason: string): object {
+  return {
+    schema: '2.0',
+    config: { summary: { content: '保存失败' } },
+    body: {
+      elements: [{ tag: 'markdown', content: `保存失败：${reason}` }],
     },
   };
 }

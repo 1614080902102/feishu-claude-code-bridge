@@ -1,4 +1,4 @@
-import { log } from '../core/logger';
+import { log, reportMetric } from '../core/logger';
 
 /**
  * FIFO concurrency cap for claude runs. Especially useful in topic-group
@@ -28,10 +28,23 @@ export class ProcessPool {
     if (this.active < this.cap()) {
       this.active++;
       log.info('pool', 'acquired', { active: this.active, cap: this.cap() });
+      reportMetric('pool_active', this.active);
       return () => this.release();
     }
     log.info('pool', 'wait', { active: this.active, cap: this.cap(), waiting: this.waiters.length + 1 });
+    reportMetric('pool_waiting', this.waiters.length + 1);
     await new Promise<void>((resolve) => this.waiters.push(resolve));
+    this.active++;
+    log.info('pool', 'acquired', { active: this.active, cap: this.cap() });
+    reportMetric('pool_active', this.active);
+    return () => this.release();
+  }
+
+  tryAcquire(): (() => void) | undefined {
+    if (this.active >= this.cap()) {
+      log.info('pool', 'full', { active: this.active, cap: this.cap() });
+      return undefined;
+    }
     this.active++;
     log.info('pool', 'acquired', { active: this.active, cap: this.cap() });
     return () => this.release();
@@ -40,6 +53,7 @@ export class ProcessPool {
   private release(): void {
     this.active = Math.max(0, this.active - 1);
     log.info('pool', 'released', { active: this.active });
+    reportMetric('pool_active', this.active);
     // Wake the next waiter if there's headroom. If cap was just lowered
     // via /config, this naturally throttles by not waking.
     if (this.active < this.cap() && this.waiters.length > 0) {

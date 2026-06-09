@@ -3,9 +3,9 @@ export type TenantBrand = 'feishu' | 'lark';
 /**
  * SecretRef points at a secret stored outside this file — keeps secrets out
  * of `config.json` so backups / accidental git commits / log dumps don't
- * leak the bot's App Secret. Mirrors openclaw / lark-cli's `SecretRef`
- * shape so lark-cli's `--source lark-channel` reads it through the same
- * generic `ResolveSecretInput` pipeline as openclaw.
+ * leak the bot's App Secret. Matches lark-cli's `SecretRef` shape so
+ * `--source lark-channel` reads it through the same generic
+ * `ResolveSecretInput` pipeline.
  *
  *   - `env`:  value is in process env at `id` (optionally allowlisted via provider)
  *   - `file`: value is at the path `id` (or `provider.path` if provider config)
@@ -28,10 +28,10 @@ export interface AppCredentials {
 }
 
 /**
- * `secrets.providers` is openclaw-compatible: each named provider declares
- * how SecretRefs resolve to plaintext (env allowlist, file path, exec
- * command). Only the fields actually consumed by bridge's resolver are
- * typed here; lark-cli reads the same JSON via its richer Go types.
+ * `secrets.providers` declares how SecretRefs resolve to plaintext (env
+ * allowlist, file path, exec command). Only the fields actually consumed by
+ * bridge's resolver are typed here; lark-cli reads the same JSON via its
+ * richer Go types.
  */
 export interface ProviderConfig {
   source: 'env' | 'file' | 'exec';
@@ -69,23 +69,19 @@ export interface SecretsConfig {
 export type MessageReplyMode = 'card' | 'markdown' | 'text';
 
 /**
- * Access control settings. All three lists default to "no restriction" when
- * empty / undefined, so existing deployments are not broken on upgrade.
- * Operators that want a hardened deployment fill these in via
- * `~/.lark-channel/config.json` (no CLI surface yet — by design, since
- * persisting the lists requires the operator to look up open_ids/chat_ids
- * out-of-band anyway).
+ * Access control settings. Empty lists are fail-closed in the v2 policy:
+ * no DM senders, no group chats, and only the runtime owner can administer
+ * the bot. Runtime owner/admin bypass is applied by the policy layer because
+ * owner identity is refreshed from Lark rather than stored in config.json.
  */
 export interface AppAccess {
-  /** open_id whitelist for who can interact with the bot (DM + group @bot).
-   * Empty/undefined = allow everyone. */
+  /** open_id allowlist for DM senders. Group senders are gated by chat. */
   allowedUsers?: string[];
-  /** chat_id whitelist for chats the bot responds in. Empty/undefined =
-   * respond in all chats it's invited to. */
+  /** chat_id allowlist for groups the bot responds in. Does not apply to p2p. */
   allowedChats?: string[];
   /** open_id list with admin privileges. Gates sensitive commands
-   * (/account, /config, /exit, /reconnect, /doctor, /cd, /ws). Empty /
-   * undefined = no admin restriction (every allowed user is an admin). */
+   * (/account, /config, /exit, /reconnect, /doctor, /cd, /ws, /doc,
+   * /invite, /remove). */
   admins?: string[];
 }
 
@@ -228,7 +224,16 @@ export function getMaxConcurrentRuns(cfg: AppConfig): number {
  * field) inherit the new safer default automatically.
  */
 export function getRequireMentionInGroup(cfg: AppConfig): boolean {
-  return cfg.preferences?.requireMentionInGroup !== false;
+  if (cfg.preferences?.requireMentionInGroup !== undefined) {
+    return cfg.preferences.requireMentionInGroup !== false;
+  }
+  const profileAccess = (cfg as AppConfig & {
+    access?: { requireMentionInGroup?: boolean };
+  }).access;
+  if (profileAccess?.requireMentionInGroup !== undefined) {
+    return profileAccess.requireMentionInGroup;
+  }
+  return true;
 }
 
 /**
@@ -257,29 +262,6 @@ export function getDefaultModel(cfg: AppConfig): string | undefined {
   const t = raw.trim();
   return t.length > 0 ? t : undefined;
 }
-
-/** True when `senderId` may interact with the bot. Empty list = allow all. */
-export function isUserAllowed(cfg: AppConfig, senderId: string): boolean {
-  const list = cfg.preferences?.access?.allowedUsers;
-  if (!list || list.length === 0) return true;
-  return list.includes(senderId);
-}
-
-/** True when `chatId` is one the bot will respond in. Empty list = allow all. */
-export function isChatAllowed(cfg: AppConfig, chatId: string): boolean {
-  const list = cfg.preferences?.access?.allowedChats;
-  if (!list || list.length === 0) return true;
-  return list.includes(chatId);
-}
-
-/** True when `senderId` has admin privileges. Empty list = no admin
- * restriction (every allowed user can run admin commands). */
-export function isAdmin(cfg: AppConfig, senderId: string): boolean {
-  const list = cfg.preferences?.access?.admins;
-  if (!list || list.length === 0) return true;
-  return list.includes(senderId);
-}
-
 export function getRunIdleTimeoutMs(cfg: AppConfig): number | undefined {
   const raw = cfg.preferences?.runIdleTimeoutMinutes;
   if (typeof raw !== 'number' || !Number.isFinite(raw) || raw <= 0) return undefined;
