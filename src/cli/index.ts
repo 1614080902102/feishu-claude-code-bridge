@@ -9,6 +9,7 @@ import {
   runSecretsRemove,
   runSecretsSet,
 } from './commands/secrets';
+import { runSendFile, runSendImage } from './commands/send';
 import {
   runProfileCreate,
   runProfileExport,
@@ -239,6 +240,29 @@ secrets
   .option('--profile <name>', 'profile name (defaults to active profile)')
   .action(async (opts: { appId: string; profile?: string }) => {
     await runSecretsRemove(opts.appId, { profile: opts.profile });
+  });
+
+const send = program
+  .command('send')
+  .description('用 bridge bot 凭证给指定 chat 发文件 / 图片');
+
+send
+  .command('file')
+  .description('上传并发送一个文件到 chat')
+  .requiredOption('--chat-id <id>', '目标 chat_id (oc_...)')
+  .requiredOption('--path <path>', '本地文件路径')
+  .option('--name <name>', '在飞书里展示的文件名 (默认取 path 的 basename)')
+  .action(async (opts: { chatId: string; path: string; name?: string }) => {
+    await runSendFile(opts);
+  });
+
+send
+  .command('image')
+  .description('上传并发送一张图片到 chat')
+  .requiredOption('--chat-id <id>', '目标 chat_id (oc_...)')
+  .requiredOption('--path <path>', '本地图片路径')
+  .action(async (opts: { chatId: string; path: string }) => {
+    await runSendImage(opts);
   });
 
 program.parseAsync(process.argv).catch((err: unknown) => {

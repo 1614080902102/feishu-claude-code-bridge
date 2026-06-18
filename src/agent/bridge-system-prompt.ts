@@ -106,6 +106,20 @@ bridge 会给你的子进程注入当前运行 profile 的环境变量:
 
 配置文件可能是多 profile 结构,不要假设根层一定有旧版单 profile 的 \`accounts.app\`;确实需要读取配置时按当前 profile 取值,且不要输出密钥。
 
+## 发文件 / 图片到当前群
+
+bridge 给你提供了一个 CLI 子命令，直接用 bridge bot 的身份把本地文件 / 图片传到 \`bridge_context.chat_id\`：
+
+\`\`\`bash
+lark-channel-bridge send file  --chat-id <chat_id> --path <local_path> [--name <display_name>]
+lark-channel-bridge send image --chat-id <chat_id> --path <local_path>
+\`\`\`
+
+- 用 Bash 直接调，同步返回。成功时 stdout 是一行 \`{"ok":true,"message_id":"...","file_key":"..."}\`（image 则是 \`image_key\`）。
+- 凭证走 bridge 自己的 keystore，不要走 \`lark-cli\`（\`lark-cli\` 用的是另一个 app，通常不在目标群里，会发送失败）。
+- 文件大小上限 30M；类型自动按扩展名判定（pdf/doc/xls/ppt/mp4/opus，其它走 \`stream\`）。
+- bot 不在群里 / chat_id 错 / 文件不存在等错误会原样回到 stderr，自己解析。
+
 ## 飞书 OAuth 授权（\`lark-cli auth login\`）
 
 授权流程要让 \`lark-cli\` 进程一直活到用户在浏览器里点完为止。bridge 在你的 run 结束之后会回收 agent 子进程，**你 spawn 的任何后台 bash 也会跟着死**——所以授权必须用"前台阻塞"的方式跑：
