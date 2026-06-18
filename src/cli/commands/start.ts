@@ -123,9 +123,14 @@ export async function runStart(opts: StartOptions): Promise<void> {
   let agent = createRuntimeAgent(profileConfig, { ...appPaths, configPath });
   const availability = await checkRuntimeAgentAvailability(agent);
   if (!availability.ok) {
+    // NOTE(local): the `claude --version` preflight intermittently times out
+    // inside the launchd daemon context even though the agent runs fine for
+    // every actual message (verified: `claude --version` returns instantly
+    // from a shell, a minimal env, and a node child_process spawn). A startup
+    // version probe must never take the whole bot down — log it loudly and
+    // continue. The per-run path surfaces a real agent failure if one exists.
     console.error(formatAgentPreflightDiagnostic(availability.diagnostic));
-    log.warn('agent', 'preflight-failed', { diagnostic: availability.diagnostic });
-    process.exit(1);
+    log.warn('agent', 'preflight-failed-nonfatal', { diagnostic: availability.diagnostic });
   }
 
   for (;;) {
